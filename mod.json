@@ -1,0 +1,77 @@
+{
+	"geode": "4.6.0",
+	"gd": {
+		"win": "2.2074",
+		"android": "2.2074",
+		"mac": "2.2074",
+		"ios": "2.2074"
+	},
+	"id": "yourname.autodeco",
+	"name": "Auto Deco",
+	"version": "v1.0.0",
+	"developer": "yourname",
+	"description": "Automatically decorates your level with customizable deco styles.",
+	"settings": {
+		"style": {
+			"name": "Deco Style",
+			"description": "Border: thin edges on exposed block sides. Corners: small squares on exposed corners. Scatter: random bits floating near blocks. Spikes: small thorn-like pieces on top edges.",
+			"type": "string",
+			"default": "Border",
+			"one-of": ["Border", "Corners", "Scatter", "Spikes"]
+		},
+		"density": {
+			"name": "Density",
+			"description": "Chance (0-1) that each possible deco piece is placed.",
+			"type": "float",
+			"default": 0.8,
+			"min": 0.05,
+			"max": 1.0,
+			"control": { "slider": true }
+		},
+		"thickness": {
+			"name": "Thickness / Size",
+			"type": "float",
+			"default": 0.2,
+			"min": 0.05,
+			"max": 1.0,
+			"control": { "slider": true }
+		},
+		"scatter-radius": {
+			"name": "Scatter Radius (blocks)",
+			"description": "How far from blocks scatter pieces may appear.",
+			"type": "int",
+			"default": 2,
+			"min": 1,
+			"max": 6
+		},
+		"color-id": {
+			"name": "Color Channel",
+			"description": "Color channel ID used for deco objects.",
+			"type": "int",
+			"default": 2,
+			"min": 1,
+			"max": 999
+		},
+		"z-order": {
+			"name": "Z Order",
+			"type": "int",
+			"default": -1,
+			"min": -20,
+			"max": 20
+		},
+		"include-hazards": {
+			"name": "Decorate Hazards",
+			"description": "Also add deco around spikes and saws.",
+			"type": "bool",
+			"default": false
+		},
+		"seed": {
+			"name": "Random Seed",
+			"description": "0 = different every time.",
+			"type": "int",
+			"default": 0,
+			"min": 0,
+			"max": 999999
+		}
+	}
+}
