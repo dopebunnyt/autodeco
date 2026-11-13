@@ -15,9 +15,9 @@ jobs:
         uses: geode-sdk/build-geode-mod@main
         with:
           bindings: geode-sdk/bindings
-          bindings-ref: main
+          bindings-ref: v5.9.0
           combine: true
-          sdk: latest
+          sdk: v5.9.0
           target: Win64
 
   package:
