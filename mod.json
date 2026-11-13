@@ -6,10 +6,10 @@
 		"mac": "2.2074",
 		"ios": "2.2074"
 	},
-	"id": "yourname.autodeco",
+	"id": "dopebunnyt.autodeco",
 	"name": "Auto Deco",
 	"version": "v1.0.0",
-	"developer": "yourname",
+	"developer": "dopebunnyt",
 	"description": "Automatically decorates your level with customizable deco styles.",
 	"settings": {
 		"style": {
