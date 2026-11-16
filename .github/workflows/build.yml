@@ -16,7 +16,7 @@ jobs:
         with:
           bindings: geode-sdk/bindings
           combine: true
-          sdk: v5.9.0
+          sdk: v5.11.2
           target: Win64
 
   package:
