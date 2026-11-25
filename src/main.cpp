@@ -1,5 +1,8 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/EditorPauseLayer.hpp>
+#include <algorithm>
+#include <cmath>
+#include <iterator>
 #include <random>
 #include <set>
 #include <string>
@@ -9,9 +12,14 @@ using namespace geode::prelude;
 
 namespace {
 	constexpr float GRID = 30.f;
-	// Object ID used for deco pieces (basic block). Made non-solid below via "no touch".
-	// Swap this for any decoration object ID you like.
-	constexpr int DECO_ID = 1;
+
+	// Real decoration object IDs (from community object-ID references).
+	// If one looks wrong in your game, change the number here.
+	constexpr int GRASS_IDS[] = { 406, 407, 408, 414 }; // small grass tufts
+	constexpr int BUSH_IDS[]  = { 123, 124, 125, 126, 127, 128 }; // bushes
+	constexpr int DOT_ID   = 1764; // small dot
+	constexpr int CLOUD_ID = 131;  // small cloud
+	constexpr int PIXEL_ID = 1964; // tiny pixel piece
 
 	using Cell = std::pair<int, int>;
 
@@ -23,101 +31,287 @@ namespace {
 		return { c.first * GRID + GRID / 2, c.second * GRID + GRID / 2 };
 	}
 
-	GameObject* place(LevelEditorLayer* lel, CCPoint pos, float sx, float sy, float rot,
-	                  int colorID, int zOrder) {
-		auto obj = lel->createObject(DECO_ID, pos, false);
-		if (!obj) return nullptr;
-		obj->m_isNoTouch = true; // decoration only, no hitbox
-		obj->updateCustomScaleX(sx);
-		obj->updateCustomScaleY(sy);
-		if (rot != 0.f) obj->setRotation(rot);
-		if (obj->m_baseColor) obj->m_baseColor->m_colorID = colorID;
-		obj->m_zOrder = zOrder;
-		return obj;
+	bool isDecoId(int id) {
+		for (int g : GRASS_IDS) if (g == id) return true;
+		for (int b : BUSH_IDS) if (b == id) return true;
+		return id == DOT_ID || id == CLOUD_ID || id == PIXEL_ID;
 	}
+
+	struct Side { int dx, dy; float rot; };
+	// top, bottom, right, left (rotation = which way the piece points)
+	const Side SIDES[4] = { {0, 1, 0.f}, {0, -1, 180.f}, {1, 0, 90.f}, {-1, 0, 270.f} };
 
 	int runAutoDeco(LevelEditorLayer* lel) {
 		auto mod = Mod::get();
 		auto style = mod->getSettingValue<std::string>("style");
 		float density = (float)mod->getSettingValue<double>("density");
-		float thick = (float)mod->getSettingValue<double>("thickness");
+		float size = (float)mod->getSettingValue<double>("size");
+		float variation = (float)mod->getSettingValue<double>("variation");
 		int radius = (int)mod->getSettingValue<int64_t>("scatter-radius");
-		int colorID = (int)mod->getSettingValue<int64_t>("color-id");
+		int color1 = (int)mod->getSettingValue<int64_t>("color-id");
+		int color2 = (int)mod->getSettingValue<int64_t>("color-id-2");
 		int z = (int)mod->getSettingValue<int64_t>("z-order");
+		bool behind = mod->getSettingValue<bool>("behind-blocks");
 		bool hazards = mod->getSettingValue<bool>("include-hazards");
+		bool replaceOld = mod->getSettingValue<bool>("replace-old");
+		bool depthLayer = mod->getSettingValue<bool>("depth-layer");
+		int vineLen = (int)mod->getSettingValue<int64_t>("vine-length");
 		int64_t seed = mod->getSettingValue<int64_t>("seed");
 
 		std::mt19937 rng(seed != 0 ? (unsigned)seed : std::random_device{}());
-		std::uniform_real_distribution<float> chance(0.f, 1.f);
-		std::uniform_real_distribution<float> jitter(-GRID / 3, GRID / 3);
+		auto rnd = [&](float a, float b) {
+			return std::uniform_real_distribution<float>(a, b)(rng);
+		};
+		auto roll = [&](float p) { return rnd(0.f, 1.f) < p; };
+		auto pick = [&](auto const& arr) {
+			size_t n = std::size(arr);
+			return arr[std::uniform_int_distribution<size_t>(0, n - 1)(rng)];
+		};
 
-		// Snapshot level objects first so we never decorate our own deco.
-		std::set<Cell> solid, occupied;
-		std::vector<Cell> hazardCells;
+		// ---- Scan the level ----
+		std::vector<GameObject*> oldDeco;
+		std::set<Cell> solid, blocked;
 		for (auto obj : CCArrayExt<GameObject*>(lel->m_objects)) {
-			if (!obj || obj->m_isNoTouch) continue;
+			if (!obj) continue;
+			if (replaceOld && isDecoId(obj->m_objectID)) {
+				oldDeco.push_back(obj);
+				continue;
+			}
 			Cell c = toCell(obj->getPosition());
-			occupied.insert(c);
-			if (obj->m_objectType == GameObjectType::Solid) solid.insert(c);
-			else if (hazards && obj->m_objectType == GameObjectType::Hazard) {
+			if (obj->m_objectType == GameObjectType::Solid) {
 				solid.insert(c);
+				blocked.insert(c);
+			}
+			else if (obj->m_objectType == GameObjectType::Hazard) {
+				blocked.insert(c);
+				if (hazards) solid.insert(c);
 			}
 		}
+		if (solid.empty()) return 0;
 
+		for (auto o : oldDeco) lel->removeObject(o, true);
+
+		// ---- Output builder ----
+		// Keys: 1=id 2=x 3=y 6=rotation 21=main color 22=detail color
+		//       24=z layer 25=z order 32=scale
+		std::string data;
 		int count = 0;
-		auto empty = [&](int x, int y) { return !occupied.count({x, y}); };
+		int zNow = z, c1Now = color1, c2Now = color2;
+		auto add = [&](int id, float x, float y, float rot, float scale) {
+			scale = std::clamp(scale, 0.05f, 4.f);
+			data += fmt::format(
+				"1,{},2,{:.2f},3,{:.2f},6,{:.1f},32,{:.3f},21,{},22,{},25,{}",
+				id, x, y, rot, scale, c1Now, c2Now, zNow
+			);
+			if (behind) data += ",24,1";
+			data += ';';
+			count++;
+		};
 
-		if (style == "Border") {
-			for (auto [x, y] : solid) {
-				CCPoint c = cellCenter({x, y});
-				float off = GRID / 2;
-				float t = thick;
-				if (empty(x, y + 1) && chance(rng) < density) count += place(lel, {c.x, c.y + off}, 1.f, t, 0, colorID, z) != nullptr;
-				if (empty(x, y - 1) && chance(rng) < density) count += place(lel, {c.x, c.y - off}, 1.f, t, 0, colorID, z) != nullptr;
-				if (empty(x + 1, y) && chance(rng) < density) count += place(lel, {c.x + off, c.y}, t, 1.f, 0, colorID, z) != nullptr;
-				if (empty(x - 1, y) && chance(rng) < density) count += place(lel, {c.x - off, c.y}, t, 1.f, 0, colorID, z) != nullptr;
+		auto exposed = [&](Cell c, Side const& s) {
+			return !blocked.count({ c.first + s.dx, c.second + s.dy });
+		};
+		// A point on a block's side: t slides along the edge, out pushes away from it.
+		auto sidePoint = [&](Cell c, Side const& s, float t, float out) {
+			CCPoint ctr = cellCenter(c);
+			float tx = (float)std::abs(s.dy), ty = (float)std::abs(s.dx);
+			return CCPoint{
+				ctr.x + s.dx * (GRID / 2 + out) + tx * t,
+				ctr.y + s.dy * (GRID / 2 + out) + ty * t
+			};
+		};
+		auto tilt = [&](float maxDeg) { return rnd(-1.f, 1.f) * variation * maxDeg; };
+
+		// ---- Techniques ----
+		auto grass = [&](Cell c) {
+			auto const& s = SIDES[0];
+			if (!exposed(c, s)) return;
+			int n = roll(0.5f) ? 2 : 1;
+			for (int i = 0; i < n; i++) {
+				if (!roll(density)) continue;
+				float sc = size * rnd(0.7f, 1.2f);
+				CCPoint p = sidePoint(c, s, rnd(-11.f, 11.f), sc * 6.f);
+				add(pick(GRASS_IDS), p.x, p.y, tilt(15.f), sc);
 			}
-		}
-		else if (style == "Corners") {
-			for (auto [x, y] : solid) {
-				CCPoint c = cellCenter({x, y});
-				float off = GRID / 2;
-				for (int dx : {-1, 1}) for (int dy : {-1, 1}) {
-					// corner is exposed if both adjacent sides are open
-					if (empty(x + dx, y) && empty(x, y + dy) && chance(rng) < density) {
-						count += place(lel, {c.x + dx * off, c.y + dy * off}, thick, thick, 45, colorID, z) != nullptr;
-					}
+		};
+
+		auto cornerBush = [&](Cell c) {
+			if (!exposed(c, SIDES[0])) return;
+			for (int sx : { -1, 1 }) {
+				if (blocked.count({ c.first + sx, c.second })) continue;
+				if (!roll(density * 0.35f)) continue;
+				CCPoint ctr = cellCenter(c);
+				float sc = size * rnd(0.5f, 0.9f);
+				add(pick(BUSH_IDS), ctr.x + sx * GRID / 2, ctr.y + GRID / 2 + sc * 5.f,
+				    tilt(20.f), sc);
+			}
+		};
+
+		auto hanging = [&](Cell c) {
+			auto const& s = SIDES[1];
+			if (!exposed(c, s) || !roll(density * 0.5f)) return;
+			float sc = size * rnd(0.5f, 0.9f);
+			CCPoint p = sidePoint(c, s, rnd(-9.f, 9.f), sc * 5.f);
+			add(pick(BUSH_IDS), p.x, p.y, 180.f + tilt(15.f), sc);
+		};
+
+		auto sideBush = [&](Cell c) {
+			for (int i = 2; i < 4; i++) {
+				auto const& s = SIDES[i];
+				if (!exposed(c, s) || !roll(density * 0.2f)) continue;
+				float sc = size * rnd(0.5f, 0.8f);
+				CCPoint p = sidePoint(c, s, rnd(-9.f, 9.f), sc * 5.f);
+				add(pick(BUSH_IDS), p.x, p.y, s.rot + tilt(15.f), sc);
+			}
+		};
+
+		auto dots = [&](Cell c, bool includeTop) {
+			for (int i = includeTop ? 0 : 1; i < 4; i++) {
+				auto const& s = SIDES[i];
+				if (!exposed(c, s)) continue;
+				for (int k = 0; k < 2; k++) {
+					if (!roll(density)) continue;
+					float t = (k == 0 ? -8.f : 8.f) + rnd(-3.f, 3.f);
+					CCPoint p = sidePoint(c, s, t, rnd(-2.f, 3.f));
+					add(DOT_ID, p.x, p.y, 0.f, size * rnd(0.4f, 0.9f));
 				}
 			}
-		}
-		else if (style == "Scatter") {
+		};
+
+		auto pixels = [&](Cell c) {
+			for (auto const& s : SIDES) {
+				if (!exposed(c, s)) continue;
+				int n = roll(0.5f) ? 3 : 2;
+				for (int k = 0; k < n; k++) {
+					if (!roll(density)) continue;
+					CCPoint p = sidePoint(c, s, rnd(-13.f, 13.f), rnd(0.f, 12.f));
+					add(PIXEL_ID, p.x, p.y, rnd(0.f, 45.f) * variation, size * rnd(0.08f, 0.25f));
+				}
+			}
+		};
+
+		auto overgrown = [&](Cell c) {
+			grass(c);
+			cornerBush(c);
+			hanging(c);
+			sideBush(c);
+			dots(c, false);
+		};
+
+		// Vines: short hanging strands under blocks, thinning toward the tip.
+		auto vines = [&](Cell c) {
+			auto const& s = SIDES[1];
+			if (!exposed(c, s) || !roll(density * 0.4f)) return;
+			int len = 1 + (int)rnd(0.f, (float)vineLen);
+			CCPoint ctr = cellCenter(c);
+			float x = ctr.x + rnd(-9.f, 9.f);
+			float y = ctr.y - GRID / 2;
+			for (int i = 0; i < len; i++) {
+				float sc = std::max(size * (0.9f - 0.1f * i) * rnd(0.8f, 1.1f), 0.2f * size);
+				y -= sc * 9.f;
+				x += rnd(-2.5f, 2.5f);
+				bool last = (i == len - 1);
+				if (last) add(pick(BUSH_IDS), x, y, 180.f + tilt(15.f), sc * 0.8f);
+				else add(DOT_ID, x, y, 0.f, sc * 0.6f);
+			}
+		};
+
+		// Moss: grass growing out of every exposed side, thickest on top.
+		auto moss = [&](Cell c) {
+			for (int i = 0; i < 4; i++) {
+				auto const& s = SIDES[i];
+				if (!exposed(c, s)) continue;
+				if (!roll(i == 0 ? density : density * 0.45f)) continue;
+				float sc = size * rnd(0.6f, 1.1f);
+				CCPoint p = sidePoint(c, s, rnd(-11.f, 11.f), sc * 6.f);
+				add(pick(GRASS_IDS), p.x, p.y, s.rot + tilt(15.f), sc);
+			}
+		};
+
+		// Studs: a dot on every outer corner, like rivets.
+		auto studs = [&](Cell c) {
+			CCPoint ctr = cellCenter(c);
+			for (int sx : { -1, 1 }) {
+				for (int sy : { -1, 1 }) {
+					bool outer = !blocked.count({ c.first + sx, c.second }) &&
+					             !blocked.count({ c.first, c.second + sy });
+					if (!outer || !roll(density)) continue;
+					add(DOT_ID, ctr.x + sx * (GRID / 2 - 4.f), ctr.y + sy * (GRID / 2 - 4.f),
+					    0.f, size * rnd(0.5f, 0.7f));
+				}
+			}
+		};
+
+		// Clouds: small overlapping cloud banks floating above block tops.
+		auto clouds = [&](Cell c) {
+			auto const& s = SIDES[0];
+			if (!exposed(c, s) || !roll(density * 0.12f)) return;
+			CCPoint base = sidePoint(c, s, 0.f, rnd(25.f, 60.f));
+			int n = 3 + (int)rnd(0.f, 2.99f);
+			for (int i = 0; i < n; i++) {
+				float sc = size * rnd(0.4f, 0.9f);
+				add(CLOUD_ID, base.x + (i - n / 2) * 14.f + rnd(-4.f, 4.f),
+				    base.y + rnd(-6.f, 6.f), tilt(8.f), sc);
+			}
+		};
+
+		// Floaty: clouds and dots scattered in the air around blocks.
+		auto floaty = [&](float mult, int extra, float scaleMult) {
 			std::set<Cell> done;
+			int r = radius + extra;
 			for (auto [x, y] : solid) {
-				for (int dx = -radius; dx <= radius; dx++) for (int dy = -radius; dy <= radius; dy++) {
-					Cell n{x + dx, y + dy};
-					if (occupied.count(n) || done.count(n)) continue;
-					done.insert(n);
-					if (chance(rng) < density * 0.25f) {
+				for (int dx = -r; dx <= r; dx++) {
+					for (int dy = -r; dy <= r; dy++) {
+						Cell n{ x + dx, y + dy };
+						if (blocked.count(n) || done.count(n)) continue;
+						done.insert(n);
+						if (!roll(density * 0.2f * mult)) continue;
 						CCPoint p = cellCenter(n);
-						float s = thick * (0.5f + chance(rng));
-						count += place(lel, {p.x + jitter(rng), p.y + jitter(rng)}, s, s,
-						               chance(rng) * 90.f, colorID, z) != nullptr;
+						p.x += rnd(-10.f, 10.f);
+						p.y += rnd(-10.f, 10.f);
+						if (roll(0.3f)) add(CLOUD_ID, p.x, p.y, tilt(10.f), size * rnd(0.3f, 0.7f) * scaleMult);
+						else add(DOT_ID, p.x, p.y, 0.f, size * rnd(0.4f, 1.1f) * scaleMult);
 					}
 				}
 			}
-		}
-		else if (style == "Spikes") {
-			for (auto [x, y] : solid) {
-				if (!empty(x, y + 1)) continue;
-				CCPoint c = cellCenter({x, y});
-				// a few thin vertical shards along the top edge
-				for (int i = -1; i <= 1; i++) {
-					if (chance(rng) >= density) continue;
-					float h = thick * (1.f + chance(rng) * 1.5f);
-					count += place(lel, {c.x + i * 9.f, c.y + GRID / 2 + h * GRID / 2},
-					               thick * 0.5f, h, 0, colorID, z) != nullptr;
-				}
+		};
+
+		// ---- Apply the chosen style ----
+		for (auto c : solid) {
+			if (style == "Grass") { grass(c); cornerBush(c); }
+			else if (style == "Moss") moss(c);
+			else if (style == "Vines") { vines(c); grass(c); }
+			else if (style == "Dots") dots(c, true);
+			else if (style == "Studs") studs(c);
+			else if (style == "Clouds") clouds(c);
+			else if (style == "Overgrown") overgrown(c);
+			else if (style == "Pixels") pixels(c);
+			else if (style == "Mixed") {
+				float r = rnd(0.f, 1.f);
+				if (r < 0.25f) { grass(c); cornerBush(c); }
+				else if (r < 0.4f) moss(c);
+				else if (r < 0.55f) vines(c);
+				else if (r < 0.7f) dots(c, true);
+				else if (r < 0.85f) studs(c);
+				else overgrown(c);
 			}
+		}
+		if (style == "Floaty") floaty(1.f, 0, 1.f);
+		if (style == "Mixed") floaty(0.4f, 0, 1.f);
+
+		// Depth layer: big, sparse pieces far behind everything, in the detail color.
+		if (depthLayer) {
+			zNow = z - 6;
+			c1Now = color2;
+			c2Now = color1;
+			floaty(0.6f, 2, 1.8f);
+			zNow = z;
+			c1Now = color1;
+			c2Now = color2;
+		}
+
+		if (count > 0) {
+			lel->createObjectsFromString(data, true, true);
 		}
 		return count;
 	}
@@ -149,8 +343,13 @@ class $modify(AutoDecoPauseLayer, EditorPauseLayer) {
 			[this](auto, bool confirmed) {
 				if (!confirmed) return;
 				int n = runAutoDeco(m_editorLayer);
-				Notification::create(fmt::format("Placed {} deco objects", n),
-				                     NotificationIcon::Success)->show();
+				if (n == 0) {
+					Notification::create("No solid blocks found to decorate",
+					                     NotificationIcon::Error)->show();
+				} else {
+					Notification::create(fmt::format("Placed {} deco pieces", n),
+					                     NotificationIcon::Success)->show();
+				}
 			}
 		);
 	}
