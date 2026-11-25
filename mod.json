@@ -8,47 +8,80 @@
 	},
 	"id": "dopebunnyt.autodeco",
 	"name": "Auto Deco",
-	"version": "v1.0.0",
+	"version": "v1.2.0",
 	"developer": "dopebunnyt",
-	"description": "Automatically decorates your level with customizable deco styles.",
+	"description": "Automatically decorates your level with real deco objects: grass, moss, vines, bushes, dots, studs, clouds and pixels.",
 	"settings": {
 		"style": {
 			"name": "Deco Style",
-			"description": "Border: thin edges on exposed block sides. Corners: small squares on exposed corners. Scatter: random bits floating near blocks. Spikes: small thorn-like pieces on top edges.",
+			"description": "Overgrown: grass on top, hanging bushes, side dots. Grass: tufts on tops plus corner bushes. Moss: grass on every exposed side. Vines: hanging strands under blocks. Dots: dotted outline on edges. Studs: rivet dots on outer corners. Clouds: cloud banks above blocks. Floaty: clouds and dots in the air. Pixels: tiny pixel bits on edges. Mixed: a bit of everything.",
 			"type": "string",
-			"default": "Border",
-			"one-of": ["Border", "Corners", "Scatter", "Spikes"]
+			"default": "Overgrown",
+			"one-of": [
+				"Overgrown",
+				"Grass",
+				"Moss",
+				"Vines",
+				"Dots",
+				"Studs",
+				"Clouds",
+				"Floaty",
+				"Pixels",
+				"Mixed"
+			]
 		},
 		"density": {
 			"name": "Density",
-			"description": "Chance (0-1) that each possible deco piece is placed.",
+			"description": "How much deco is placed (0.05 to 1).",
 			"type": "float",
-			"default": 0.8,
+			"default": 0.7,
 			"min": 0.05,
-			"max": 1.0,
-			"control": { "slider": true }
+			"max": 1.0
 		},
-		"thickness": {
-			"name": "Thickness / Size",
+		"size": {
+			"name": "Size",
+			"description": "Scale of deco pieces.",
 			"type": "float",
-			"default": 0.2,
-			"min": 0.05,
-			"max": 1.0,
-			"control": { "slider": true }
+			"default": 1.0,
+			"min": 0.3,
+			"max": 2.5
+		},
+		"variation": {
+			"name": "Variation",
+			"description": "How much random tilt each piece gets (0 = perfectly straight).",
+			"type": "float",
+			"default": 0.6,
+			"min": 0.0,
+			"max": 1.0
 		},
 		"scatter-radius": {
-			"name": "Scatter Radius (blocks)",
-			"description": "How far from blocks scatter pieces may appear.",
+			"name": "Float Radius (blocks)",
+			"description": "How far from blocks Floaty and Mixed pieces can appear.",
 			"type": "int",
 			"default": 2,
 			"min": 1,
 			"max": 6
 		},
+		"vine-length": {
+			"name": "Vine Length",
+			"description": "Max pieces in each hanging vine (Vines style).",
+			"type": "int",
+			"default": 3,
+			"min": 1,
+			"max": 6
+		},
 		"color-id": {
-			"name": "Color Channel",
-			"description": "Color channel ID used for deco objects.",
+			"name": "Main Color Channel",
 			"type": "int",
 			"default": 2,
+			"min": 1,
+			"max": 999
+		},
+		"color-id-2": {
+			"name": "Detail Color Channel",
+			"description": "Second color used by deco that has a detail layer.",
+			"type": "int",
+			"default": 3,
 			"min": 1,
 			"max": 999
 		},
@@ -59,9 +92,26 @@
 			"min": -20,
 			"max": 20
 		},
+		"behind-blocks": {
+			"name": "Put Deco Behind Blocks",
+			"type": "bool",
+			"default": true
+		},
+		"depth-layer": {
+			"name": "Depth Layer",
+			"description": "Adds a second layer of large, sparse pieces far behind everything, in the detail color, for a sense of depth.",
+			"type": "bool",
+			"default": false
+		},
 		"include-hazards": {
 			"name": "Decorate Hazards",
 			"description": "Also add deco around spikes and saws.",
+			"type": "bool",
+			"default": false
+		},
+		"replace-old": {
+			"name": "Replace Previous Deco",
+			"description": "Removes grass, bush, dot, cloud and pixel objects already in the level before decorating. This also removes ones you placed by hand.",
 			"type": "bool",
 			"default": false
 		},
