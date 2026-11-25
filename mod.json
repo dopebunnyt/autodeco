@@ -8,16 +8,18 @@
 	},
 	"id": "dopebunnyt.autodeco",
 	"name": "Auto Deco",
-	"version": "v1.2.0",
+	"version": "v1.6.0",
 	"developer": "dopebunnyt",
 	"description": "Automatically decorates your level with real deco objects: grass, moss, vines, bushes, dots, studs, clouds and pixels.",
 	"settings": {
 		"style": {
 			"name": "Deco Style",
-			"description": "Overgrown: grass on top, hanging bushes, side dots. Grass: tufts on tops plus corner bushes. Moss: grass on every exposed side. Vines: hanging strands under blocks. Dots: dotted outline on edges. Studs: rivet dots on outer corners. Clouds: cloud banks above blocks. Floaty: clouds and dots in the air. Pixels: tiny pixel bits on edges. Mixed: a bit of everything.",
+			"description": "Tropical: bright, multicolor look with foliage clusters, rising bubbles and long flowing dot ribbons (uses all 3 color channels). Hell: dark and sharp, with hanging thorns with glowing tips, spiky shard fans and rising embers (set the accent color to red or orange). Also recolors your blocks and saws if 'Hell: Recolor Blocks and Saws' is on. Others: Overgrown, Grass, Moss, Vines, Dots, Studs, Clouds, Floaty, Pixels, Mixed.",
 			"type": "string",
-			"default": "Overgrown",
+			"default": "Tropical",
 			"one-of": [
+				"Tropical",
+				"Hell",
 				"Overgrown",
 				"Grass",
 				"Moss",
@@ -85,6 +87,42 @@
 			"min": 1,
 			"max": 999
 		},
+		"color-id-3": {
+			"name": "Accent Color Channel",
+			"description": "Third color. Tropical: a bright accent. Hell: the glow color for embers and tips.",
+			"type": "int",
+			"default": 4,
+			"min": 1,
+			"max": 999
+		},
+		"hell-palette": {
+			"name": "Hell Palette (color channels)",
+			"description": "Comma-separated color channels for Hell, darkest to brightest, e.g. 2,3,4,5,6. Give each channel a different red in the editor (maroon, blood red, crimson, orange-red, ember orange). Blocks, saws and deco blend smoothly across them, so the reds are never all the same.",
+			"type": "string",
+			"default": "2,3,4,5,6"
+		},
+		"glow": {
+			"name": "Glow",
+			"description": "Adds glow halos behind deco pieces and around blocks, saws, spikes, pads, orbs and portals. Works with every style.",
+			"type": "bool",
+			"default": true
+		},
+		"glow-strength": {
+			"name": "Glow Strength",
+			"description": "Higher = more glow layers and more glowing pieces.",
+			"type": "float",
+			"default": 0.7,
+			"min": 0.1,
+			"max": 1.0
+		},
+		"glow-color-id": {
+			"name": "Glow Color Channel",
+			"description": "Color channel used for glow. In the editor set it to a bright orange or red, turn BLENDING on, and lower its opacity to about 20-30% so it looks like light instead of a solid disc.",
+			"type": "int",
+			"default": 7,
+			"min": 1,
+			"max": 999
+		},
 		"z-order": {
 			"name": "Z Order",
 			"type": "int",
@@ -114,6 +152,12 @@
 			"description": "Removes grass, bush, dot, cloud and pixel objects already in the level before decorating. This also removes ones you placed by hand.",
 			"type": "bool",
 			"default": false
+		},
+		"hell-retheme": {
+			"name": "Hell: Recolor Blocks and Saws",
+			"description": "With the Hell style, recolors every solid block (main + detail color) and every saw (dark blade, accent-color glow) already in your level. Old black saws are swapped for recolorable ones.",
+			"type": "bool",
+			"default": true
 		},
 		"seed": {
 			"name": "Random Seed",
